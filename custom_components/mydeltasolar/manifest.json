@@ -1,12 +1,12 @@
 {
   "domain": "mydeltasolar",
   "name": "MyDeltaSolar",
-  "codeowners": ["@RobertQWatson"],
+  "codeowners": ["@astra-openclaw"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/RobertQWatson/home-assistant-mydeltasolar",
+  "documentation": "https://github.com/astra-openclaw/home-assistant-mydeltasolar",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/RobertQWatson/home-assistant-mydeltasolar/issues",
+  "issue_tracker": "https://github.com/astra-openclaw/home-assistant-mydeltasolar/issues",
   "requirements": [],
   "version": "0.2.1"
 }
