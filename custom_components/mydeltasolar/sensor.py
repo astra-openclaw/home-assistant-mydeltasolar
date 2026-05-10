@@ -67,6 +67,24 @@ PLANT_SENSORS: tuple[MyDeltaSolarSensorEntityDescription, ...] = (
         value_fn=lambda data: data.lifetime_energy_kwh,
     ),
     MyDeltaSolarSensorEntityDescription(
+        key="month_to_date_energy",
+        translation_key="month_to_date_energy",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=3,
+        value_fn=lambda data: data.month_to_date_energy_kwh,
+    ),
+    MyDeltaSolarSensorEntityDescription(
+        key="year_to_date_energy",
+        translation_key="year_to_date_energy",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        suggested_display_precision=3,
+        value_fn=lambda data: data.year_to_date_energy_kwh,
+    ),
+    MyDeltaSolarSensorEntityDescription(
         key="active_inverters",
         translation_key="active_inverters",
         state_class=SensorStateClass.MEASUREMENT,
@@ -75,7 +93,13 @@ PLANT_SENSORS: tuple[MyDeltaSolarSensorEntityDescription, ...] = (
     MyDeltaSolarSensorEntityDescription(
         key="plant_status",
         translation_key="plant_status",
-        value_fn=lambda data: data.status_code,
+        value_fn=lambda data: data.status,
+    ),
+    MyDeltaSolarSensorEntityDescription(
+        key="event_count",
+        translation_key="event_count",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.event_count,
     ),
 )
 
@@ -99,6 +123,10 @@ async def async_setup_entry(
     )
     entities.extend(
         MyDeltaSolarInverterStatusSensor(coordinator, inverter)
+        for inverter in data.inverters
+    )
+    entities.extend(
+        MyDeltaSolarInverterLastSeenSensor(coordinator, inverter)
         for inverter in data.inverters
     )
     async_add_entities(entities)
@@ -134,6 +162,12 @@ class MyDeltaSolarPlantSensor(
         return {
             ATTR_PLANT_ID: self.coordinator.data.plant_id,
             ATTR_PLANT_NAME: self.coordinator.data.plant_name,
+            "status_code": self.coordinator.data.status_code,
+            "country": self.coordinator.data.country,
+            "location": self.coordinator.data.location,
+            "timezone": self.coordinator.data.timezone,
+            "timezone_id": self.coordinator.data.timezone_id,
+            "start_date": self.coordinator.data.start_date,
         }
 
 
@@ -154,19 +188,16 @@ class MyDeltaSolarInverterLastUpdateSensor(
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._inverter = inverter
-        self._attr_unique_id = f"{coordinator.data.plant_id}_inverter_{inverter.index}_last_update"
+        self._attr_unique_id = (
+            f"{coordinator.data.plant_id}_inverter_{inverter.index}_last_update"
+        )
         self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
 
     @property
     def native_value(self) -> datetime | None:
         """Return the last update timestamp."""
         inverter = _find_inverter(self.coordinator.data, self._inverter.index)
-        if inverter is None or inverter.last_update is None:
-            return None
-        try:
-            return datetime.fromisoformat(inverter.last_update)
-        except ValueError:
-            return None
+        return inverter.last_update_datetime if inverter else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -190,19 +221,51 @@ class MyDeltaSolarInverterStatusSensor(
         """Initialize the sensor."""
         super().__init__(coordinator)
         self._inverter = inverter
-        self._attr_unique_id = f"{coordinator.data.plant_id}_inverter_{inverter.index}_cloud_status"
+        self._attr_unique_id = (
+            f"{coordinator.data.plant_id}_inverter_{inverter.index}_cloud_status"
+        )
         self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
 
     @property
     def native_value(self) -> str:
         """Return online if last cloud update is today, otherwise stale."""
         inverter = _find_inverter(self.coordinator.data, self._inverter.index)
-        if inverter is None or inverter.last_update is None:
-            return "unknown"
-        try:
-            return "online" if datetime.fromisoformat(inverter.last_update).date() == datetime.now().date() else "stale"
-        except ValueError:
-            return "unknown"
+        return inverter.cloud_status if inverter else "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return inverter attributes."""
+        return _inverter_attributes(self._inverter)
+
+
+class MyDeltaSolarInverterLastSeenSensor(
+    CoordinatorEntity[MyDeltaSolarDataUpdateCoordinator], SensorEntity
+):
+    """Representation of an inverter last-seen age sensor."""
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_translation_key = "inverter_last_seen_minutes"
+
+    def __init__(
+        self,
+        coordinator: MyDeltaSolarDataUpdateCoordinator,
+        inverter: InverterInfo,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator)
+        self._inverter = inverter
+        self._attr_unique_id = (
+            f"{coordinator.data.plant_id}_inverter_{inverter.index}_last_seen_minutes"
+        )
+        self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
+
+    @property
+    def native_value(self) -> int | None:
+        """Return minutes since last cloud update."""
+        inverter = _find_inverter(self.coordinator.data, self._inverter.index)
+        return inverter.last_seen_minutes if inverter else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -238,4 +301,5 @@ def _inverter_attributes(inverter: InverterInfo) -> dict[str, Any]:
         ATTR_INVERTER_SERIAL: inverter.serial,
         ATTR_INVERTER_MODEL: inverter.model,
         ATTR_COLLECTOR_ID: inverter.collector_id,
+        "inverter_id": inverter.inverter_id,
     }

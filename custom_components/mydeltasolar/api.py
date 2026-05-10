@@ -10,6 +10,15 @@ from aiohttp import ClientError, ClientSession
 
 from .const import BASE_URL
 
+PLANT_STATUS = {
+    0: "not_activated",
+    1: "monitoring",
+    2: "fault",
+    3: "error",
+    4: "warning",
+    5: "disconnect",
+}
+
 
 class MyDeltaSolarError(Exception):
     """Base MyDeltaSolar API error."""
@@ -34,6 +43,33 @@ class InverterInfo:
     inverter_id: int | None
     last_update: str | None
 
+    @property
+    def last_update_datetime(self) -> datetime | None:
+        """Return last update as a datetime, if parseable."""
+        if self.last_update is None:
+            return None
+        try:
+            return datetime.fromisoformat(self.last_update)
+        except ValueError:
+            return None
+
+    @property
+    def last_seen_minutes(self) -> int | None:
+        """Return minutes since last cloud update."""
+        last_update = self.last_update_datetime
+        if last_update is None:
+            return None
+        delta = datetime.now() - last_update
+        return max(0, int(delta.total_seconds() // 60))
+
+    @property
+    def cloud_status(self) -> str:
+        """Return online if last cloud update is today, otherwise stale."""
+        last_update = self.last_update_datetime
+        if last_update is None:
+            return "unknown"
+        return "online" if last_update.date() == datetime.now().date() else "stale"
+
 
 @dataclass(slots=True, frozen=True)
 class PlantTelemetry:
@@ -42,27 +78,28 @@ class PlantTelemetry:
     plant_id: int
     plant_name: str
     status_code: int | None
+    status: str | None
+    country: str | None
+    location: str | None
+    timezone: str | None
+    timezone_id: str | None
+    start_date: str | None
+    event_count: int | None
     today_energy_kwh: float | None
     lifetime_energy_kwh: float | None
     current_power_kw: float | None
+    month_to_date_energy_kwh: float | None
+    year_to_date_energy_kwh: float | None
     inverters: tuple[InverterInfo, ...]
     raw_plant: dict[str, Any]
     raw_energy: dict[str, Any]
+    raw_month: dict[str, Any] | None
+    raw_year: dict[str, Any] | None
 
     @property
     def active_inverter_count(self) -> int:
         """Return count of inverters with a last update date matching today."""
-        today = datetime.now().date()
-        count = 0
-        for inverter in self.inverters:
-            if not inverter.last_update:
-                continue
-            try:
-                if datetime.fromisoformat(inverter.last_update).date() == today:
-                    count += 1
-            except ValueError:
-                continue
-        return count
+        return sum(1 for inverter in self.inverters if inverter.cloud_status == "online")
 
 
 class MyDeltaSolarClient:
@@ -106,7 +143,10 @@ class MyDeltaSolarClient:
         if not self._logged_in:
             await self.async_login()
 
-        headers = {"X-Requested-With": "XMLHttpRequest", "Referer": self._base_url + "m_gtop"}
+        headers = {
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": self._base_url + "m_gtop",
+        }
         plant = await self._request("GET", "web/process_init_plant.php", headers=headers)
         energy = await self._request(
             "POST",
@@ -114,10 +154,27 @@ class MyDeltaSolarClient:
             data={"is_all_plants": "1"},
             headers=headers,
         )
+        month = await self._request(
+            "POST",
+            "web/process_gtop_plot.php",
+            data={"unit": "month", "is_all_plants": "1"},
+            headers=headers,
+        )
+        year = await self._request(
+            "POST",
+            "web/process_gtop_plot.php",
+            data={"unit": "year", "is_all_plants": "1"},
+            headers=headers,
+        )
 
         if not isinstance(plant, dict) or not isinstance(energy, dict):
             raise MyDeltaSolarFormatError("Telemetry response was not JSON object")
-        return _normalize_telemetry(plant, energy)
+        return _normalize_telemetry(
+            plant,
+            energy,
+            month if isinstance(month, dict) else None,
+            year if isinstance(year, dict) else None,
+        )
 
     async def _request(
         self,
@@ -143,7 +200,7 @@ class MyDeltaSolarClient:
                 text = await response.text()
                 if response.status >= 400:
                     raise MyDeltaSolarError(
-                        f"MyDeltaSolar returned HTTP {response.status} for {path}"
+                        f"MyDeltaSolar returned HTTP {response.status} for {path}: {text[:120]}"
                     )
                 if not expected_json:
                     return text
@@ -161,6 +218,15 @@ def _first(values: list[Any] | None, default: Any = None) -> Any:
     if not values:
         return default
     return values[0]
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _wh_to_kwh(value: Any) -> float | None:
@@ -181,16 +247,35 @@ def _w_to_kw(value: Any) -> float | None:
         return None
 
 
-def _normalize_telemetry(plant: dict[str, Any], energy: dict[str, Any]) -> PlantTelemetry:
+def _sum_wh_to_kwh(values: list[Any] | None) -> float | None:
+    if values is None:
+        return None
+    total = 0.0
+    found = False
+    for value in values:
+        if value is None:
+            continue
+        try:
+            total += float(value)
+        except (TypeError, ValueError):
+            continue
+        found = True
+    return round(total / 1000, 3) if found else None
+
+
+def _normalize_telemetry(
+    plant: dict[str, Any],
+    energy: dict[str, Any],
+    month: dict[str, Any] | None = None,
+    year: dict[str, Any] | None = None,
+) -> PlantTelemetry:
     plant_ids = plant.get("plant_ID") or []
     plant_id = int(_first(plant_ids, 0))
     if plant_id == 0:
         raise MyDeltaSolarFormatError("No plant found in MyDeltaSolar account")
 
     plant_name = str(_first(plant.get("plant_name"), plant_id))
-    status_code = _first(plant.get("plt_status"))
-    if status_code is not None:
-        status_code = int(status_code)
+    status_code = _int_or_none(_first(plant.get("plt_status")))
 
     serials = (plant.get("P_SN") or {}).get(str(plant_id), [])
     models = (plant.get("invtp_arr") or {}).get(str(plant_id), [])
@@ -205,8 +290,12 @@ def _normalize_telemetry(plant: dict[str, Any], energy: dict[str, Any]) -> Plant
                 index=idx + 1,
                 serial=str(serial),
                 model=str(models[idx]) if idx < len(models) else None,
-                collector_id=int(collector_ids[idx]) if idx < len(collector_ids) else None,
-                inverter_id=int(inverter_ids[idx]) if idx < len(inverter_ids) else None,
+                collector_id=_int_or_none(collector_ids[idx])
+                if idx < len(collector_ids)
+                else None,
+                inverter_id=_int_or_none(inverter_ids[idx])
+                if idx < len(inverter_ids)
+                else None,
                 last_update=str(last_updates[idx]) if idx < len(last_updates) else None,
             )
         )
@@ -215,10 +304,23 @@ def _normalize_telemetry(plant: dict[str, Any], energy: dict[str, Any]) -> Plant
         plant_id=plant_id,
         plant_name=plant_name,
         status_code=status_code,
+        status=PLANT_STATUS.get(status_code, "unknown")
+        if status_code is not None
+        else None,
+        country=_first(plant.get("country")),
+        location=_first(plant.get("location")),
+        timezone=_first(plant.get("timezone")),
+        timezone_id=_first(plant.get("tzID")),
+        start_date=_first(plant.get("start_date")),
+        event_count=_int_or_none(_first(plant.get("event_num"))),
         today_energy_kwh=_wh_to_kwh(_first(energy.get("te"))),
         lifetime_energy_kwh=_wh_to_kwh(_first(energy.get("le"))),
         current_power_kw=_w_to_kw(_first(energy.get("de"))),
+        month_to_date_energy_kwh=_sum_wh_to_kwh(month.get("energy") if month else None),
+        year_to_date_energy_kwh=_sum_wh_to_kwh(year.get("energy") if year else None),
         inverters=tuple(inverters),
         raw_plant=plant,
         raw_energy=energy,
+        raw_month=month,
+        raw_year=year,
     )

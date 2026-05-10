@@ -24,10 +24,14 @@
       "current_power": { "name": "Current power" },
       "today_energy": { "name": "Today energy" },
       "lifetime_energy": { "name": "Lifetime energy" },
+      "month_to_date_energy": { "name": "Month-to-date energy" },
+      "year_to_date_energy": { "name": "Year-to-date energy" },
       "active_inverters": { "name": "Active inverters" },
+      "event_count": { "name": "Event count" },
       "plant_status": { "name": "Plant status" },
       "inverter_last_update": { "name": "Last update" },
-      "inverter_cloud_status": { "name": "Cloud status" }
+      "inverter_cloud_status": { "name": "Cloud status" },
+      "inverter_last_seen_minutes": { "name": "Last seen" }
     }
   }
 }

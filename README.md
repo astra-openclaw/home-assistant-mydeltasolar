@@ -13,9 +13,13 @@ The first version creates these sensors:
 - Current power (`kW`)
 - Today energy (`kWh`)
 - Lifetime energy (`kWh`)
-- Plant status code
+- Month-to-date energy (`kWh`)
+- Year-to-date energy (`kWh`)
+- Human-readable plant status plus status code attribute
+- Event count
 - Active inverter count
 - Per-inverter last update
+- Per-inverter last-seen age in minutes
 - Per-inverter cloud status (`online`, `stale`, or `unknown`)
 
 Cloud status is inferred from the inverter's last update date. If only one inverter is reporting to MyDeltaSolar, aggregate production reflects only what the cloud currently sees.
