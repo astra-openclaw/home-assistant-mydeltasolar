@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "MyDeltaSolar",
+        "description": "Connect to your MyDeltaSolar cloud account.",
+        "data": {
+          "username": "Email",
+          "password": "Password",
+          "scan_interval": "Scan interval in minutes"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to MyDeltaSolar.",
+      "invalid_auth": "Invalid MyDeltaSolar credentials."
+    },
+    "abort": {
+      "already_configured": "This MyDeltaSolar account is already configured."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_power": { "name": "Current power" },
+      "today_energy": { "name": "Today energy" },
+      "lifetime_energy": { "name": "Lifetime energy" },
+      "daily_yield": { "name": "Daily yield" },
+      "active_inverters": { "name": "Active inverters" },
+      "plant_status": { "name": "Plant status" },
+      "inverter_last_update": { "name": "Last update" },
+      "inverter_cloud_status": { "name": "Cloud status" }
+    }
+  }
+}
