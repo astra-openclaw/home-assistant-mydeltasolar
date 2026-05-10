@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from aiohttp import ClientError, ClientSession
 
@@ -42,6 +43,7 @@ class InverterInfo:
     collector_id: int | None
     inverter_id: int | None
     last_update: str | None
+    timezone_id: str | None = None
 
     @property
     def last_update_datetime(self) -> datetime | None:
@@ -49,9 +51,16 @@ class InverterInfo:
         if self.last_update is None:
             return None
         try:
-            return datetime.fromisoformat(self.last_update)
+            parsed = datetime.fromisoformat(self.last_update)
         except ValueError:
             return None
+        if parsed.tzinfo is not None:
+            return parsed
+        timezone_id = self.timezone_id or "UTC"
+        try:
+            return parsed.replace(tzinfo=ZoneInfo(timezone_id))
+        except Exception:
+            return parsed.replace(tzinfo=ZoneInfo("UTC"))
 
     @property
     def last_seen_minutes(self) -> int | None:
@@ -59,7 +68,7 @@ class InverterInfo:
         last_update = self.last_update_datetime
         if last_update is None:
             return None
-        delta = datetime.now() - last_update
+        delta = datetime.now(tz=last_update.tzinfo) - last_update
         return max(0, int(delta.total_seconds() // 60))
 
     @property
@@ -68,7 +77,7 @@ class InverterInfo:
         last_update = self.last_update_datetime
         if last_update is None:
             return "unknown"
-        return "online" if last_update.date() == datetime.now().date() else "stale"
+        return "online" if last_update.date() == datetime.now(tz=last_update.tzinfo).date() else "stale"
 
 
 @dataclass(slots=True, frozen=True)
@@ -297,6 +306,7 @@ def _normalize_telemetry(
                 if idx < len(inverter_ids)
                 else None,
                 last_update=str(last_updates[idx]) if idx < len(last_updates) else None,
+                timezone_id=_first(plant.get("tzID")),
             )
         )
 

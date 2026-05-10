@@ -48,3 +48,7 @@ def _remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if entity_entry.unique_id.endswith("_daily_yield"):
             registry.async_remove(entity_entry.entity_id)
+
+    # Older Home Assistant reload paths can leave an unavailable state behind even
+    # after registry cleanup. Remove the known legacy state as a harmless fallback.
+    hass.states.async_remove("sensor.homeauto_daily_yield")
