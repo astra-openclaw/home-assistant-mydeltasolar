@@ -24,7 +24,6 @@
       "current_power": { "name": "Current power" },
       "today_energy": { "name": "Today energy" },
       "lifetime_energy": { "name": "Lifetime energy" },
-      "daily_yield": { "name": "Daily yield" },
       "active_inverters": { "name": "Active inverters" },
       "plant_status": { "name": "Plant status" },
       "inverter_last_update": { "name": "Last update" },

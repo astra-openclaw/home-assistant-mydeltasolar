@@ -14,7 +14,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
+from homeassistant.const import UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -65,14 +65,6 @@ PLANT_SENSORS: tuple[MyDeltaSolarSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         suggested_display_precision=3,
         value_fn=lambda data: data.lifetime_energy_kwh,
-    ),
-    MyDeltaSolarSensorEntityDescription(
-        key="daily_yield",
-        translation_key="daily_yield",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=1,
-        value_fn=lambda data: data.daily_yield,
     ),
     MyDeltaSolarSensorEntityDescription(
         key="active_inverters",

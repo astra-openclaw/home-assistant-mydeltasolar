@@ -13,7 +13,6 @@ The first version creates these sensors:
 - Current power (`kW`)
 - Today energy (`kWh`)
 - Lifetime energy (`kWh`)
-- Daily yield / cloud-provided daily field
 - Plant status code
 - Active inverter count
 - Per-inverter last update

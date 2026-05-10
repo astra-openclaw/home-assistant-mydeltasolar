@@ -45,7 +45,6 @@ class PlantTelemetry:
     today_energy_kwh: float | None
     lifetime_energy_kwh: float | None
     current_power_kw: float | None
-    daily_yield: float | None
     inverters: tuple[InverterInfo, ...]
     raw_plant: dict[str, Any]
     raw_energy: dict[str, Any]
@@ -219,7 +218,6 @@ def _normalize_telemetry(plant: dict[str, Any], energy: dict[str, Any]) -> Plant
         today_energy_kwh=_wh_to_kwh(_first(energy.get("te"))),
         lifetime_energy_kwh=_wh_to_kwh(_first(energy.get("le"))),
         current_power_kw=_w_to_kw(_first(energy.get("de"))),
-        daily_yield=float(_first(energy.get("de"), 0)) if energy.get("de") else None,
         inverters=tuple(inverters),
         raw_plant=plant,
         raw_energy=energy,
