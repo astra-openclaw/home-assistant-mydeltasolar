@@ -5,6 +5,7 @@ from __future__ import annotations
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
 from .coordinator import MyDeltaSolarDataUpdateCoordinator
@@ -18,6 +19,8 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: MyDeltaSolarConfigEntry
 ) -> bool:
     """Set up MyDeltaSolar from a config entry."""
+    _remove_legacy_entities(hass, entry)
+
     coordinator = MyDeltaSolarDataUpdateCoordinator(
         hass=hass,
         username=entry.data[CONF_USERNAME],
@@ -37,3 +40,11 @@ async def async_unload_entry(
 ) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+def _remove_legacy_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entities that were created by older integration versions."""
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity_entry.unique_id.endswith("_daily_yield"):
+            registry.async_remove(entity_entry.entity_id)
