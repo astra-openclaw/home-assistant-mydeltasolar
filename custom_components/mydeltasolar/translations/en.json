@@ -21,17 +21,84 @@
   },
   "entity": {
     "sensor": {
-      "current_power": { "name": "Current power" },
-      "today_energy": { "name": "Today energy" },
-      "lifetime_energy": { "name": "Lifetime energy" },
-      "month_to_date_energy": { "name": "Month-to-date energy" },
-      "year_to_date_energy": { "name": "Year-to-date energy" },
-      "active_inverters": { "name": "Active inverters" },
-      "event_count": { "name": "Event count" },
-      "plant_status": { "name": "Plant status" },
-      "inverter_last_update": { "name": "Last update" },
-      "inverter_cloud_status": { "name": "Cloud status" },
-      "inverter_last_seen_minutes": { "name": "Last seen" }
+      "current_power": {
+        "name": "Current power"
+      },
+      "today_energy": {
+        "name": "Today energy"
+      },
+      "lifetime_energy": {
+        "name": "Lifetime energy"
+      },
+      "month_to_date_energy": {
+        "name": "Month-to-date energy"
+      },
+      "year_to_date_energy": {
+        "name": "Year-to-date energy"
+      },
+      "active_inverters": {
+        "name": "Active inverters"
+      },
+      "event_count": {
+        "name": "Event count"
+      },
+      "plant_status": {
+        "name": "Plant status"
+      },
+      "inverter_last_update": {
+        "name": "Last update"
+      },
+      "inverter_cloud_status": {
+        "name": "Cloud status"
+      },
+      "inverter_last_seen_minutes": {
+        "name": "Last seen"
+      },
+      "calculated_current_power": {
+        "name": "Calculated current power"
+      },
+      "current_power_delta": {
+        "name": "Current power delta"
+      },
+      "current_power_delta_percent": {
+        "name": "Current power delta percent"
+      },
+      "live_inverters": {
+        "name": "Live inverters"
+      },
+      "inverter_status": {
+        "name": "Inverter status"
+      },
+      "inverter_today_energy": {
+        "name": "Today energy"
+      },
+      "inverter_lifetime_energy": {
+        "name": "Lifetime energy"
+      },
+      "inverter_output_power": {
+        "name": "Output power"
+      },
+      "inverter_output_voltage": {
+        "name": "Output voltage"
+      },
+      "inverter_output_current": {
+        "name": "Output current"
+      },
+      "inverter_dc_power": {
+        "name": "DC input power"
+      },
+      "inverter_dc_voltage": {
+        "name": "DC input voltage"
+      },
+      "inverter_dc_current": {
+        "name": "DC input current"
+      },
+      "inverter_telemetry_last_sample": {
+        "name": "Telemetry sample time"
+      },
+      "inverter_telemetry_portal_update": {
+        "name": "Portal update time"
+      }
     }
   }
 }

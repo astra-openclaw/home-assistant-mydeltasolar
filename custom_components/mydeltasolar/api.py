@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -20,6 +20,19 @@ PLANT_STATUS = {
     5: "disconnect",
 }
 
+INVERTER_STATUS = {
+    0: "check_dc",
+    1: "countdown",
+    2: "on_grid",
+    3: "no_dc",
+    4: "alarm",
+    5: "standalone",
+    6: "off",
+    7: "online",
+    8: "disconnected",
+    9: "communication_unstable",
+}
+
 
 class MyDeltaSolarError(Exception):
     """Base MyDeltaSolar API error."""
@@ -34,6 +47,41 @@ class MyDeltaSolarFormatError(MyDeltaSolarError):
 
 
 @dataclass(slots=True, frozen=True)
+class InverterTelemetry:
+    """Latest telemetry for a Delta inverter."""
+
+    status_code: int | None = None
+    status: str | None = None
+    today_energy_kwh: float | None = None
+    lifetime_energy_kwh: float | None = None
+    dc_voltage_v: tuple[float, ...] = ()
+    dc_current_a: tuple[float, ...] = ()
+    dc_power_w: tuple[float, ...] = ()
+    ac_voltage_v: tuple[float, ...] = ()
+    ac_current_a: tuple[float, ...] = ()
+    ac_power_w: tuple[float, ...] = ()
+    last_sample: datetime | None = None
+    portal_update: datetime | None = None
+    raw: dict[str, Any] | None = None
+
+    @property
+    def total_dc_power_w(self) -> float | None:
+        """Return summed DC input power."""
+        return round(sum(self.dc_power_w), 3) if self.dc_power_w else None
+
+    @property
+    def total_ac_power_w(self) -> float | None:
+        """Return summed AC output power."""
+        return round(sum(self.ac_power_w), 3) if self.ac_power_w else None
+
+    @property
+    def total_ac_power_kw(self) -> float | None:
+        """Return summed AC output power in kW."""
+        total = self.total_ac_power_w
+        return round(total / 1000, 3) if total is not None else None
+
+
+@dataclass(slots=True, frozen=True)
 class InverterInfo:
     """Cloud metadata for a Delta inverter/data collector."""
 
@@ -44,6 +92,7 @@ class InverterInfo:
     inverter_id: int | None
     last_update: str | None
     timezone_id: str | None = None
+    telemetry: InverterTelemetry | None = None
 
     @property
     def last_update_datetime(self) -> datetime | None:
@@ -105,6 +154,54 @@ class PlantTelemetry:
     raw_day: dict[str, Any] | None
     raw_month: dict[str, Any] | None
     raw_year: dict[str, Any] | None
+
+    @property
+    def calculated_current_power_kw(self) -> float | None:
+        """Return summed live AC output power from inverter telemetry."""
+        total_w = 0.0
+        found = False
+        for inverter in self.inverters:
+            if inverter.telemetry is None:
+                continue
+            power_w = inverter.telemetry.total_ac_power_w
+            if power_w is None:
+                continue
+            total_w += power_w
+            found = True
+        return round(total_w / 1000, 3) if found else None
+
+    @property
+    def graph_current_power_kw(self) -> float | None:
+        """Return MyDeltaSolar graph-derived current power."""
+        return self.current_power_kw
+
+    @property
+    def current_power_delta_kw(self) -> float | None:
+        """Return calculated inverter power minus graph-derived power."""
+        calculated = self.calculated_current_power_kw
+        graph = self.graph_current_power_kw
+        if calculated is None or graph is None:
+            return None
+        return round(calculated - graph, 3)
+
+    @property
+    def current_power_delta_percent(self) -> float | None:
+        """Return calculated-vs-graph current power delta percentage."""
+        calculated = self.calculated_current_power_kw
+        graph = self.graph_current_power_kw
+        if calculated is None or graph in (None, 0):
+            return None
+        return round(((calculated - graph) / graph) * 100, 1)
+
+    @property
+    def live_inverter_count(self) -> int:
+        """Return count of inverters with live AC power telemetry."""
+        return sum(
+            1
+            for inverter in self.inverters
+            if inverter.telemetry is not None
+            and inverter.telemetry.total_ac_power_w is not None
+        )
 
     @property
     def active_inverter_count(self) -> int:
@@ -185,13 +282,64 @@ class MyDeltaSolarClient:
 
         if not isinstance(plant, dict) or not isinstance(energy, dict):
             raise MyDeltaSolarFormatError("Telemetry response was not JSON object")
+
+        inverter_payloads = await self._async_get_inverter_telemetry_payloads(
+            plant, headers
+        )
+
         return _normalize_telemetry(
             plant,
             energy,
             day if isinstance(day, dict) else None,
             month if isinstance(month, dict) else None,
             year if isinstance(year, dict) else None,
+            inverter_payloads,
         )
+
+    async def _async_get_inverter_telemetry_payloads(
+        self,
+        plant: dict[str, Any],
+        headers: dict[str, str],
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch latest per-inverter telemetry payloads keyed by serial."""
+        plant_id = _int_or_none(_first(plant.get("plant_ID")))
+        if plant_id is None:
+            return {}
+
+        serials = (plant.get("P_SN") or {}).get(str(plant_id), [])
+        inverter_ids = (plant.get("invid_arr") or {}).get(str(plant_id), [])
+        if not serials:
+            return {}
+
+        now = datetime.now()
+        common_data = {
+            "year": str(now.year),
+            "month": str(now.month),
+            "day": str(now.day),
+            "unit": "day",
+            "item": "more",
+            "plant_id": str(plant_id),
+            "is_inv": "1",
+            "start_date": str(_first(plant.get("start_date"), "")),
+            "plt_type": str(_first(plant.get("plt_type"), "")),
+            "devices": "",
+            "is_dst_plt": str(int(bool(_first(plant.get("is_dst"), False)))),
+            "country": str(_first(plant.get("country"), "")),
+        }
+
+        payloads: dict[str, dict[str, Any]] = {}
+        for idx, serial in enumerate(serials):
+            serial = str(serial)
+            inverter_id = _sequence_item(inverter_ids, idx, idx + 1)
+            payload = await self._request(
+                "POST",
+                "web/AjaxInverterUpdate.php",
+                data={**common_data, "sn": serial, "inv": str(inverter_id)},
+                headers=headers,
+            )
+            if isinstance(payload, dict):
+                payloads[serial] = payload
+        return payloads
 
     async def _request(
         self,
@@ -235,6 +383,10 @@ def _first(values: list[Any] | None, default: Any = None) -> Any:
     if not values:
         return default
     return values[0]
+
+
+def _sequence_item(values: list[Any], index: int, default: Any = None) -> Any:
+    return values[index] if index < len(values) else default
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -302,12 +454,88 @@ def _latest_plot_power_kw(day: dict[str, Any] | None) -> float | None:
     return None
 
 
+def _timestamp_or_none(value: Any, timezone_id: str | None = None) -> datetime | None:
+    parsed = _float_or_none(value)
+    if parsed is None:
+        return None
+    if parsed > 10_000_000_000:
+        parsed = parsed / 1000
+    dt = datetime.fromtimestamp(parsed, tz=UTC)
+    if not timezone_id:
+        return dt
+    try:
+        return dt.astimezone(ZoneInfo(timezone_id))
+    except Exception:
+        return dt
+
+
+def _scaled_tuple(values: list[Any] | None, scale: float = 1.0) -> tuple[float, ...]:
+    if not values:
+        return ()
+    parsed: list[float] = []
+    for value in values:
+        number = _float_or_none(value)
+        if number is not None:
+            parsed.append(round(number / scale, 3))
+    return tuple(parsed)
+
+
+def _extract_inverter_record(
+    payloads: dict[str, dict[str, Any]],
+    inverter: InverterInfo,
+) -> dict[str, Any] | None:
+    payload = payloads.get(inverter.serial)
+    if not payload:
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    serial_data = result.get(inverter.serial)
+    if not isinstance(serial_data, dict):
+        return None
+    inverter_id = str(inverter.inverter_id or inverter.index)
+    record = serial_data.get(inverter_id)
+    if isinstance(record, dict):
+        return record
+    for value in serial_data.values():
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _normalize_inverter_telemetry(
+    record: dict[str, Any] | None,
+    timezone_id: str | None,
+) -> InverterTelemetry | None:
+    if not record:
+        return None
+    status_code = _int_or_none(record.get("ivs"))
+    return InverterTelemetry(
+        status_code=status_code,
+        status=INVERTER_STATUS.get(status_code, "unknown")
+        if status_code is not None
+        else None,
+        today_energy_kwh=_wh_to_kwh(record.get("te")),
+        lifetime_energy_kwh=_wh_to_kwh(record.get("male")),
+        dc_voltage_v=_scaled_tuple(record.get("iv"), 10),
+        dc_current_a=_scaled_tuple(record.get("ic"), 100),
+        dc_power_w=_scaled_tuple(record.get("ip")),
+        ac_voltage_v=_scaled_tuple(record.get("ov"), 10),
+        ac_current_a=_scaled_tuple(record.get("oc"), 100),
+        ac_power_w=_scaled_tuple(record.get("op")),
+        last_sample=_timestamp_or_none(record.get("last_ts"), timezone_id),
+        portal_update=_timestamp_or_none(record.get("update_ts"), timezone_id),
+        raw=record,
+    )
+
+
 def _normalize_telemetry(
     plant: dict[str, Any],
     energy: dict[str, Any],
     day: dict[str, Any] | None = None,
     month: dict[str, Any] | None = None,
     year: dict[str, Any] | None = None,
+    inverter_payloads: dict[str, dict[str, Any]] | None = None,
 ) -> PlantTelemetry:
     plant_ids = plant.get("plant_ID") or []
     plant_id = int(_first(plant_ids, 0))
@@ -322,22 +550,34 @@ def _normalize_telemetry(
     collector_ids = (plant.get("P_cid") or {}).get(str(plant_id), [])
     inverter_ids = (plant.get("invid_arr") or {}).get(str(plant_id), [])
     last_updates = (plant.get("P_last_ts") or {}).get(str(plant_id), [])
+    timezone_id = _first(plant.get("tzID"))
+    inverter_payloads = inverter_payloads or {}
 
     inverters: list[InverterInfo] = []
     for idx, serial in enumerate(serials):
+        inverter = InverterInfo(
+            index=idx + 1,
+            serial=str(serial),
+            model=_sequence_item(models, idx),
+            collector_id=_int_or_none(_sequence_item(collector_ids, idx)),
+            inverter_id=_int_or_none(_sequence_item(inverter_ids, idx)),
+            last_update=str(_sequence_item(last_updates, idx))
+            if _sequence_item(last_updates, idx) is not None
+            else None,
+            timezone_id=timezone_id,
+        )
         inverters.append(
             InverterInfo(
-                index=idx + 1,
-                serial=str(serial),
-                model=str(models[idx]) if idx < len(models) else None,
-                collector_id=_int_or_none(collector_ids[idx])
-                if idx < len(collector_ids)
-                else None,
-                inverter_id=_int_or_none(inverter_ids[idx])
-                if idx < len(inverter_ids)
-                else None,
-                last_update=str(last_updates[idx]) if idx < len(last_updates) else None,
-                timezone_id=_first(plant.get("tzID")),
+                index=inverter.index,
+                serial=inverter.serial,
+                model=inverter.model,
+                collector_id=inverter.collector_id,
+                inverter_id=inverter.inverter_id,
+                last_update=inverter.last_update,
+                timezone_id=inverter.timezone_id,
+                telemetry=_normalize_inverter_telemetry(
+                    _extract_inverter_record(inverter_payloads, inverter), timezone_id
+                ),
             )
         )
 

@@ -14,32 +14,37 @@ Status: draft.
 | --- | --- | --- | --- |
 | Current power | daily graph `top[-1]` initially; calculated inverter sum later if validated | enabled | Current fix uses graph source. |
 | DeltaSolar graph power | daily graph `top[-1]` | diagnostic/future | Keep for comparison if calculated source becomes primary. |
-| Calculated inverter-sum power | sum inverter output power | future | Needs inverter endpoint mapping. |
-| Graph vs calculated delta | calculated - graph | future diagnostic | Useful for debugging freshness/accuracy. |
+| Calculated inverter-sum power | sum inverter output power | enabled | Implemented from `AjaxInverterUpdate.php item=more` AC output `op`. |
+| Graph vs calculated delta | calculated - graph | enabled diagnostic | Useful for debugging freshness/accuracy. |
 | Today energy | `te` | enabled | Existing. |
 | Lifetime energy | `le` | enabled | Existing. |
 
 ## Inverter entities
 
-Candidate enabled-by-default if reliable:
+Enabled by default from `AjaxInverterUpdate.php item=more`:
 
+- portal inverter status
 - output power
 - output voltage
 - output current
+- DC input power
+- DC input voltage
+- DC input current
 - today energy
-- status
+- lifetime energy
+- latest telemetry sample timestamp
+- portal update timestamp
 
-Candidate diagnostic/disabled-by-default:
+Still future/diagnostic candidates:
 
-- PV input voltage/current/power per channel
-- lifetime energy per inverter
+- separate PV input channel entities if multiple channels are observed consistently
 - firmware versions
-- last update/freshness fields
+- historical chart entities/statistics from `item=power`, `DCVI`, `ACVI`, etc.
 
 ## Rollout phases
 
 1. Plant current-power fix from daily graph.
 2. Full website/API map.
-3. Per-inverter latest sensors from More Info endpoint.
-4. Calculated plant power and graph comparison diagnostics.
+3. Per-inverter latest sensors from More Info endpoint. ✅
+4. Calculated plant power and graph comparison diagnostics. ✅
 5. Historical graph reconstruction if endpoint data supports it cleanly.

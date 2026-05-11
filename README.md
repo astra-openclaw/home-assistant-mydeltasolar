@@ -4,13 +4,15 @@ Custom Home Assistant integration for Delta Electronics MyDeltaSolar cloud monit
 
 ## Status
 
-Early development. Initial scope is aggregate plant telemetry from the MyDeltaSolar cloud.
+Early development. Current scope is aggregate plant telemetry plus latest per-inverter telemetry from the MyDeltaSolar cloud.
 
 ## Entities
 
-The first version creates these sensors:
+The integration creates plant sensors for:
 
-- Current power (`kW`)
+- Current power from the MyDeltaSolar daily graph (`kW`)
+- Calculated current power from summed inverter AC output (`kW`)
+- Current power delta and delta percent between calculated and graph values
 - Today energy (`kWh`)
 - Lifetime energy (`kWh`)
 - Month-to-date energy (`kWh`)
@@ -18,11 +20,19 @@ The first version creates these sensors:
 - Human-readable plant status plus status code attribute
 - Event count
 - Active inverter count
-- Per-inverter last update
-- Per-inverter last-seen age in minutes
-- Per-inverter cloud status (`online`, `stale`, or `unknown`)
+- Live inverter count with current AC output telemetry
 
-Cloud status is inferred from the inverter's last update date. If only one inverter is reporting to MyDeltaSolar, aggregate production reflects only what the cloud currently sees.
+It also creates per-inverter sensors for:
+
+- Cloud status (`online`, `stale`, or `unknown`)
+- Portal inverter status, such as `on_grid`, `no_dc`, or `disconnected`
+- Last update and last-seen age
+- Latest telemetry sample and portal update timestamps
+- Today energy and lifetime energy
+- AC output power, voltage, and current
+- DC input power, voltage, and current
+
+Cloud status is inferred from the inverter's last update date. The primary current-power sensor still uses the MyDeltaSolar graph source; the calculated current-power sensor is exposed separately so both sources can be compared before switching primary behavior.
 
 ## Installation
 

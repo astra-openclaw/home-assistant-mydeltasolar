@@ -2,6 +2,7 @@
 
 from custom_components.mydeltasolar.api import (
     _latest_plot_power_kw,
+    _normalize_inverter_telemetry,
     _normalize_telemetry,
 )
 
@@ -79,3 +80,72 @@ def test_latest_plot_power_kw_accepts_watts_and_point_pairs() -> None:
     assert _latest_plot_power_kw({"power": [0, 0.25, 1.6]}) == 1.6
     assert _latest_plot_power_kw({"data": [["08:00", 0.5], ["12:00", 1.75]]}) == 1.75
     assert _latest_plot_power_kw({"energy": [None, "bad", 0]}) == 0
+
+
+def test_normalize_inverter_telemetry_scales_more_info_payload() -> None:
+    """Normalize inverter More Info values into HA-native units."""
+    data = _normalize_inverter_telemetry(
+        {
+            "ivs": 2,
+            "te": 7150,
+            "male": 2739960,
+            "iv": [2118],
+            "ic": [846],
+            "ip": [1793],
+            "ov": [2315],
+            "oc": [1860],
+            "op": [3716],
+            "last_ts": 1778493600,
+            "update_ts": 1778465030,
+        },
+        "Asia/Taipei",
+    )
+
+    assert data is not None
+    assert data.status == "on_grid"
+    assert data.today_energy_kwh == 7.15
+    assert data.lifetime_energy_kwh == 2739.96
+    assert data.dc_voltage_v == (211.8,)
+    assert data.dc_current_a == (8.46,)
+    assert data.dc_power_w == (1793,)
+    assert data.ac_voltage_v == (231.5,)
+    assert data.ac_current_a == (18.6,)
+    assert data.ac_power_w == (3716,)
+    assert data.total_ac_power_kw == 3.716
+    assert data.last_sample is not None
+    assert data.portal_update is not None
+
+
+def test_normalize_telemetry_adds_calculated_current_power() -> None:
+    """Calculated plant power sums per-inverter AC output power."""
+    plant = _plant_payload()
+    serial = plant["P_SN"]["12345"][2]
+    payloads = {
+        serial: {
+            "result": {
+                serial: {
+                    "3": {
+                        "ivs": 2,
+                        "op": [3716],
+                        "ov": [2315],
+                        "oc": [1860],
+                    }
+                }
+            }
+        }
+    }
+
+    data = _normalize_telemetry(
+        plant,
+        {"te": [6830], "le": [6731600], "de": [150]},
+        {"top": [0, 3805]},
+        inverter_payloads=payloads,
+    )
+
+    assert data.current_power_kw == 3.805
+    assert data.calculated_current_power_kw == 3.716
+    assert data.current_power_delta_kw == -0.089
+    assert data.current_power_delta_percent == -2.3
+    assert data.live_inverter_count == 1
+    assert data.inverters[2].telemetry is not None
+    assert data.inverters[2].telemetry.total_ac_power_w == 3716
