@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.0
+
+- Fix current power to use the MyDeltaSolar daily production graph instead of stale `de` energy payload data.
+- Add per-inverter telemetry sensors from the inverter More Info endpoint.
+- Add calculated plant current power from summed inverter AC output power.
+- Add graph-vs-calculated current power diagnostics and live inverter count.
+- Document the mapped MyDeltaSolar site/API data sources.
+
 ## v0.2.1
 
 - Remove legacy `daily_yield` entity from the Home Assistant entity registry during setup.
