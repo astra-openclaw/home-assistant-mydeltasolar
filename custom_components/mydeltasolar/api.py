@@ -102,6 +102,7 @@ class PlantTelemetry:
     inverters: tuple[InverterInfo, ...]
     raw_plant: dict[str, Any]
     raw_energy: dict[str, Any]
+    raw_day: dict[str, Any] | None
     raw_month: dict[str, Any] | None
     raw_year: dict[str, Any] | None
 
@@ -163,6 +164,12 @@ class MyDeltaSolarClient:
             data={"is_all_plants": "1"},
             headers=headers,
         )
+        day = await self._request(
+            "POST",
+            "web/process_gtop_plot.php",
+            data={"unit": "day", "is_all_plants": "1"},
+            headers=headers,
+        )
         month = await self._request(
             "POST",
             "web/process_gtop_plot.php",
@@ -181,6 +188,7 @@ class MyDeltaSolarClient:
         return _normalize_telemetry(
             plant,
             energy,
+            day if isinstance(day, dict) else None,
             month if isinstance(month, dict) else None,
             year if isinstance(year, dict) else None,
         )
@@ -247,11 +255,11 @@ def _wh_to_kwh(value: Any) -> float | None:
         return None
 
 
-def _w_to_kw(value: Any) -> float | None:
+def _float_or_none(value: Any) -> float | None:
     if value is None:
         return None
     try:
-        return round(float(value) / 1000, 3)
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -272,9 +280,32 @@ def _sum_wh_to_kwh(values: list[Any] | None) -> float | None:
     return round(total / 1000, 3) if found else None
 
 
+def _latest_plot_power_kw(day: dict[str, Any] | None) -> float | None:
+    """Return the most recent power sample from the daily production plot."""
+    if not day:
+        return None
+
+    values = day.get("top")
+    if values is None:
+        values = day.get("power") or day.get("kw") or day.get("kW")
+    if values is None:
+        values = day.get("data") or day.get("energy")
+    if not isinstance(values, list):
+        return None
+
+    for value in reversed(values):
+        if isinstance(value, (list, tuple)) and value:
+            value = value[-1]
+        parsed = _float_or_none(value)
+        if parsed is not None:
+            return round(parsed / 1000, 3) if parsed > 50 else round(parsed, 3)
+    return None
+
+
 def _normalize_telemetry(
     plant: dict[str, Any],
     energy: dict[str, Any],
+    day: dict[str, Any] | None = None,
     month: dict[str, Any] | None = None,
     year: dict[str, Any] | None = None,
 ) -> PlantTelemetry:
@@ -325,12 +356,13 @@ def _normalize_telemetry(
         event_count=_int_or_none(_first(plant.get("event_num"))),
         today_energy_kwh=_wh_to_kwh(_first(energy.get("te"))),
         lifetime_energy_kwh=_wh_to_kwh(_first(energy.get("le"))),
-        current_power_kw=_w_to_kw(_first(energy.get("de"))),
+        current_power_kw=_latest_plot_power_kw(day),
         month_to_date_energy_kwh=_sum_wh_to_kwh(month.get("energy") if month else None),
         year_to_date_energy_kwh=_sum_wh_to_kwh(year.get("energy") if year else None),
         inverters=tuple(inverters),
         raw_plant=plant,
         raw_energy=energy,
+        raw_day=day,
         raw_month=month,
         raw_year=year,
     )
