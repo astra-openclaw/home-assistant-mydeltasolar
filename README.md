@@ -34,6 +34,10 @@ It also creates per-inverter sensors for:
 
 Cloud status is inferred from the inverter's last update date. The primary current-power sensor still uses the MyDeltaSolar graph source; the calculated current-power sensor is exposed separately so both sources can be compared before switching primary behavior.
 
+## Requirements
+
+Home Assistant **2026.8.0 or newer** (v0.3.1 onwards). Development/tests use Python **3.14.2 or newer**, matching current Home Assistant Core.
+
 ## Installation
 
 ### HACS custom repository

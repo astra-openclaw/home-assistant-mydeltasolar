@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.3.1
+
+- Replace deprecated inverter `DeviceInfo.via_device` with `via_device_id`, registering or reusing the plant before its inverter entities.
+- Preserve existing device identifiers, sensor unique IDs, entity IDs and energy metadata across setup/reload.
+- Require Home Assistant 2026.8.0 or newer; older versions lack the new entity device-info API.
+- Add real Home Assistant platform/registry regression tests for fresh installs and v0.3.0 upgrades.
+
 ## v0.3.0
 
 - Fix current power to use the MyDeltaSolar daily production graph instead of stale `de` energy payload data.

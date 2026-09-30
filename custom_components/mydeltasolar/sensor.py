@@ -21,6 +21,7 @@ from homeassistant.const import (
     UnitOfPower,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -249,26 +250,31 @@ async def async_setup_entry(
     """Set up MyDeltaSolar sensors."""
     coordinator: MyDeltaSolarDataUpdateCoordinator = entry.runtime_data
     data = coordinator.data
+    plant_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, **_plant_device_info(data)
+    )
 
     entities: list[SensorEntity] = [
         MyDeltaSolarPlantSensor(coordinator, description)
         for description in PLANT_SENSORS
     ]
     entities.extend(
-        MyDeltaSolarInverterLastUpdateSensor(coordinator, inverter)
+        MyDeltaSolarInverterLastUpdateSensor(coordinator, inverter, plant_device.id)
         for inverter in data.inverters
     )
     entities.extend(
-        MyDeltaSolarInverterStatusSensor(coordinator, inverter)
+        MyDeltaSolarInverterStatusSensor(coordinator, inverter, plant_device.id)
         for inverter in data.inverters
     )
     entities.extend(
-        MyDeltaSolarInverterLastSeenSensor(coordinator, inverter)
+        MyDeltaSolarInverterLastSeenSensor(coordinator, inverter, plant_device.id)
         for inverter in data.inverters
     )
     for inverter in data.inverters:
         entities.extend(
-            MyDeltaSolarInverterTelemetrySensor(coordinator, inverter, description)
+            MyDeltaSolarInverterTelemetrySensor(
+                coordinator, inverter, description, plant_device.id
+            )
             for description in INVERTER_TELEMETRY_SENSORS
         )
     async_add_entities(entities)
@@ -326,6 +332,7 @@ class MyDeltaSolarInverterLastUpdateSensor(
         self,
         coordinator: MyDeltaSolarDataUpdateCoordinator,
         inverter: InverterInfo,
+        plant_device_id: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -333,7 +340,9 @@ class MyDeltaSolarInverterLastUpdateSensor(
         self._attr_unique_id = (
             f"{coordinator.data.plant_id}_inverter_{inverter.index}_last_update"
         )
-        self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
+        self._attr_device_info = _inverter_device_info(
+            coordinator.data, inverter, plant_device_id
+        )
 
     @property
     def native_value(self) -> datetime | None:
@@ -359,6 +368,7 @@ class MyDeltaSolarInverterStatusSensor(
         self,
         coordinator: MyDeltaSolarDataUpdateCoordinator,
         inverter: InverterInfo,
+        plant_device_id: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -366,7 +376,9 @@ class MyDeltaSolarInverterStatusSensor(
         self._attr_unique_id = (
             f"{coordinator.data.plant_id}_inverter_{inverter.index}_cloud_status"
         )
-        self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
+        self._attr_device_info = _inverter_device_info(
+            coordinator.data, inverter, plant_device_id
+        )
 
     @property
     def native_value(self) -> str:
@@ -394,6 +406,7 @@ class MyDeltaSolarInverterLastSeenSensor(
         self,
         coordinator: MyDeltaSolarDataUpdateCoordinator,
         inverter: InverterInfo,
+        plant_device_id: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -401,7 +414,9 @@ class MyDeltaSolarInverterLastSeenSensor(
         self._attr_unique_id = (
             f"{coordinator.data.plant_id}_inverter_{inverter.index}_last_seen_minutes"
         )
-        self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
+        self._attr_device_info = _inverter_device_info(
+            coordinator.data, inverter, plant_device_id
+        )
 
     @property
     def native_value(self) -> int | None:
@@ -428,6 +443,7 @@ class MyDeltaSolarInverterTelemetrySensor(
         coordinator: MyDeltaSolarDataUpdateCoordinator,
         inverter: InverterInfo,
         description: MyDeltaSolarInverterSensorEntityDescription,
+        plant_device_id: str,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -436,7 +452,9 @@ class MyDeltaSolarInverterTelemetrySensor(
         self._attr_unique_id = (
             f"{coordinator.data.plant_id}_inverter_{inverter.index}_{description.key}"
         )
-        self._attr_device_info = _inverter_device_info(coordinator.data, inverter)
+        self._attr_device_info = _inverter_device_info(
+            coordinator.data, inverter, plant_device_id
+        )
 
     @property
     def native_value(self) -> Any:
@@ -476,13 +494,15 @@ def _plant_device_info(data: PlantTelemetry) -> dict[str, Any]:
     }
 
 
-def _inverter_device_info(data: PlantTelemetry, inverter: InverterInfo) -> dict[str, Any]:
+def _inverter_device_info(
+    data: PlantTelemetry, inverter: InverterInfo, plant_device_id: str
+) -> dict[str, Any]:
     return {
         "identifiers": {(DOMAIN, f"{data.plant_id}_{inverter.serial}")},
         "name": f"{data.plant_name} Inverter {inverter.index}",
         "manufacturer": "Delta Electronics",
         "model": inverter.model,
-        "via_device": (DOMAIN, str(data.plant_id)),
+        "via_device_id": plant_device_id,
     }
 
 
