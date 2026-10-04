@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorExtraStoredData,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -20,10 +22,11 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfPower,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .api import InverterInfo, InverterTelemetry, PlantTelemetry
 from .const import (
@@ -35,6 +38,7 @@ from .const import (
     DOMAIN,
 )
 from .coordinator import MyDeltaSolarDataUpdateCoordinator
+from .energy import INVERTER_MAX_KW, PLANT_MAX_KW, EnergyGuard, plant_timezone
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -255,7 +259,11 @@ async def async_setup_entry(
     )
 
     entities: list[SensorEntity] = [
-        MyDeltaSolarPlantSensor(coordinator, description)
+        (
+            MyDeltaSolarPlantEnergySensor
+            if description.key in {"today_energy", "lifetime_energy"}
+            else MyDeltaSolarPlantSensor
+        )(coordinator, description)
         for description in PLANT_SENSORS
     ]
     entities.extend(
@@ -272,9 +280,12 @@ async def async_setup_entry(
     )
     for inverter in data.inverters:
         entities.extend(
-            MyDeltaSolarInverterTelemetrySensor(
-                coordinator, inverter, description, plant_device.id
-            )
+            (
+                MyDeltaSolarInverterEnergySensor
+                if description.key
+                in {"inverter_today_energy", "inverter_lifetime_energy"}
+                else MyDeltaSolarInverterTelemetrySensor
+            )(coordinator, inverter, description, plant_device.id)
             for description in INVERTER_TELEMETRY_SENSORS
         )
     async_add_entities(entities)
@@ -485,6 +496,104 @@ class MyDeltaSolarInverterTelemetrySensor(
         return attrs
 
 
+@dataclass
+class _EnergyStoredData(SensorExtraStoredData):
+    """Persist the guard using HA's public extra-restore-data extension."""
+
+    guard: dict[str, Any]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {**super().as_dict(), "energy_guard": self.guard}
+
+
+class _EnergyRestoreSensor(RestoreSensor):
+    """Restore counters before processing the first fresh cloud observation."""
+
+    _max_kw: float
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._guard = EnergyGuard(
+            daily=self.entity_description.key.endswith("today_energy"),
+            max_kw=self._max_kw,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the last accepted reading without changing state on reads."""
+        return self._guard.value
+
+    @property
+    def extra_restore_state_data(self) -> SensorExtraStoredData:
+        return _EnergyStoredData(
+            self.native_value, self.native_unit_of_measurement, self._guard.as_dict()
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Initialize persistence before the entity's first state is written."""
+        await super().async_added_to_hass()
+        restored = await self.async_get_last_sensor_data()
+        if (
+            restored is not None
+            and restored.native_unit_of_measurement == UnitOfEnergy.KILO_WATT_HOUR
+        ):
+            extra = await self.async_get_last_extra_data()
+            metadata = extra.as_dict().get("energy_guard", {}) if extra else {}
+            self._guard.restore(
+                restored.native_value, metadata if isinstance(metadata, dict) else {}
+            )
+        # Previous releases did not store native sensor data. The public restored
+        # state provides a migration baseline and the local day for old snapshots.
+        last_state = await self.async_get_last_state()
+        zone = self._plant_timezone()
+        if last_state is not None:
+            if (
+                restored is None
+                and last_state.attributes.get("unit_of_measurement")
+                == UnitOfEnergy.KILO_WATT_HOUR
+            ):
+                self._guard.restore(last_state.state, {})
+            if self._guard.day is None:
+                self._guard.day = last_state.last_updated.astimezone(zone).date()
+        self._observe_energy()
+
+    def _plant_timezone(self):
+        data = self.coordinator.data
+        return plant_timezone(
+            data.timezone_id, data.timezone, self.hass.config.time_zone
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._observe_energy()
+        super()._handle_coordinator_update()
+
+    def _observe_energy(self) -> None:
+        if not self.coordinator.last_update_success:
+            self._guard.interrupt()
+            return
+        self._guard.observe(
+            super().native_value,
+            dt_util.utcnow().astimezone(self._plant_timezone()),
+            max_gap=2 * (self.coordinator.update_interval or timedelta(minutes=5)),
+            label=self.unique_id,
+        )
+
+
+class MyDeltaSolarPlantEnergySensor(_EnergyRestoreSensor, MyDeltaSolarPlantSensor):
+    """A guarded plant energy counter with unchanged registry identity."""
+
+    _max_kw = PLANT_MAX_KW
+
+
+class MyDeltaSolarInverterEnergySensor(
+    _EnergyRestoreSensor, MyDeltaSolarInverterTelemetrySensor
+):
+    """A guarded inverter energy counter with unchanged registry identity."""
+
+    _max_kw = INVERTER_MAX_KW
+
+
 def _plant_device_info(data: PlantTelemetry) -> dict[str, Any]:
     return {
         "identifiers": {(DOMAIN, str(data.plant_id))},
@@ -507,7 +616,9 @@ def _inverter_device_info(
 
 
 def _find_inverter(data: PlantTelemetry, index: int) -> InverterInfo | None:
-    return next((inverter for inverter in data.inverters if inverter.index == index), None)
+    return next(
+        (inverter for inverter in data.inverters if inverter.index == index), None
+    )
 
 
 def _inverter_attributes(inverter: InverterInfo) -> dict[str, Any]:

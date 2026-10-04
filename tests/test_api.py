@@ -149,3 +149,19 @@ def test_normalize_telemetry_adds_calculated_current_power() -> None:
     assert data.live_inverter_count == 1
     assert data.inverters[2].telemetry is not None
     assert data.inverters[2].telemetry.total_ac_power_w == 3716
+
+
+def test_timestamp_unix_seconds_preserve_instant_in_plant_timezone() -> None:
+    """The mapped More Info fields are Unix timestamps, not naive wall time."""
+    from datetime import UTC, datetime
+
+    from custom_components.mydeltasolar.api import _timestamp_or_none
+
+    instant = datetime(2026, 10, 3, 14, 50, tzinfo=UTC)  # Taipei 22:50
+    seconds = instant.timestamp()
+    for raw in (seconds, str(seconds), seconds * 1000):
+        parsed = _timestamp_or_none(raw, "Asia/Taipei")
+        assert parsed.isoformat() == "2026-10-03T22:50:00+08:00"
+        assert parsed.astimezone(UTC) == instant
+        assert _timestamp_or_none(raw).isoformat() == "2026-10-03T14:50:00+00:00"
+    assert _timestamp_or_none("2026-10-03 22:50:00", "Asia/Taipei") is None

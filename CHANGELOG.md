@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.3.2
+
+- Hold transient decreases in plant and inverter lifetime energy; accept a continuously lower replacement counter only after six hours, with a warning.
+- Protect today energy using the plant-local day and generous physical production limits (25 kW plant, 10 kW inverter); hold same-day decreases and reject midnight rollover leftovers.
+- Persist accepted counters, local day and reset-confirmation metadata using Home Assistant's RestoreSensor, including a fallback for previous releases' plain restored states.
+- Preserve all entity unique IDs, device identifiers, energy units and state classes; include v0.3.1's Home Assistant 2026.8+ device registry compatibility fix.
+- Add midnight replay, physical-bound, reset continuity, persistence and timestamp normalization regression coverage. Keep numeric Unix timestamp semantics; the reported local-time-as-UTC symptom is not yet explained by source evidence.
+
 ## v0.3.1
 
 - Replace deprecated inverter `DeviceInfo.via_device` with `via_device_id`, registering or reusing the plant before its inverter entities.
