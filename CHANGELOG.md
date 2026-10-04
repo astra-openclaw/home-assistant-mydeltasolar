@@ -6,7 +6,8 @@
 - Protect today energy using the plant-local day and generous physical production limits (25 kW plant, 10 kW inverter); hold same-day decreases and reject midnight rollover leftovers.
 - Persist accepted counters, local day and reset-confirmation metadata using Home Assistant's RestoreSensor, including a fallback for previous releases' plain restored states.
 - Preserve all entity unique IDs, device identifiers, energy units and state classes; include v0.3.1's Home Assistant 2026.8+ device registry compatibility fix.
-- Add midnight replay, physical-bound, reset continuity, persistence and timestamp normalization regression coverage. Keep numeric Unix timestamp semantics; the reported local-time-as-UTC symptom is not yet explained by source evidence.
+- Add midnight replay, physical-bound, reset continuity, persistence and timestamp normalization regression coverage.
+- Correct inverter `last_ts` epochs to plant-local wall time based on live timestamp evidence; keep `update_ts` as a Unix instant, preserve milliseconds, and retain the existing UTC fallback when no valid plant zone is known. Entity identity is unchanged.
 
 ## v0.3.1
 

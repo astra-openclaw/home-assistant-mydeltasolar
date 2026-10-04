@@ -45,29 +45,37 @@ Official source:
 
 ## Timestamp finding
 
-The repository's payload-confirmed mapping documents `last_ts` and `update_ts`
-as **numeric Unix seconds** (`docs/deltasolar-map/endpoint-inventory.md` and
-`data-dictionary.md`), and existing fixtures contain numeric values.
-`_timestamp_or_none(value, timezone_id)` interprets these as UTC instants, then
-converts to the plant zone; it also accepts milliseconds. A regression checks
-that 2026-10-03 22:50 Taipei is +08:00 and the same instant is 14:50 UTC.
-Tz-naive wall-time strings are currently rejected, not mislabeled as UTC.
+Live HA states supplied by the owner from the same inverter record/poll on
+2026-10-04 at approximately **10:40 Asia/Taipei (02:40 UTC)** settle the field
+semantics despite both fields being numeric epochs:
 
-There is insufficient raw API evidence to explain the reported 22:50 local
-value labeled 22:50 UTC: the numeric field could encode wall time incorrectly,
-or the observed entity/source could differ. **No speculative eight-hour shift
-or timestamp behavior change is included.** Comparing the affected raw numeric
-API sample against the portal time is needed before changing this contract.
+- `update_ts` / portal update: **2026-10-04T02:35:49+00:00**, correctly
+  representing **10:35:49+08:00**.
+- `last_ts` / telemetry sample: previously **2026-10-04T10:35:00+00:00**,
+  eight hours in the future; the inverter's separate last-update entity was
+  correctly **02:35:00+00:00**.
+- Inverters 2 and 3 had the same pattern at **10:30:00+00:00**, consistent with
+  the prior night's 22:50 local sample labeled UTC.
+
+`update_ts` remains a true Unix instant with the existing plant-zone conversion.
+`last_ts` encodes plant-local wall time as if UTC: decode its epoch in UTC, then
+attach the valid plant zone without shifting the clock (`replace(tzinfo=zone)`).
+The live pair now yields telemetry sample **2026-10-04T10:35:00+08:00** and portal
+update **2026-10-04T10:35:49+08:00**. Both seconds and milliseconds are supported.
+With a missing or invalid plant zone, retain the previous UTC interpretation
+rather than guessing. Entity unique IDs and device identifiers are unchanged.
+Regression tests cover the live pair and missing/invalid-zone fallback.
 
 ## Validation
 
-- Full suite: **40 tests passed** on Python **3.14.7**, Home Assistant
+- Full suite: **48 tests passed** on Python **3.14.7**, Home Assistant
   **2026.9.3**, pytest-homeassistant-custom-component **0.13.366**, and
   pytest **9.0.3**; `ruff check .` passed with ruff **0.16.9**.
 - Tests cover the exact midnight plant sequence and three inverters, same-day
   monotonicity, physical bounds (including DST), six-hour resets and interrupted
   confirmation, restored counters/pending resets, legacy-state upgrade, Unix
-  timestamp conversion, and fresh/upgrade registry identity across reloads.
+  timestamp conversion, the live wall-time/instant pair and no-zone fallback,
+  and fresh/upgrade registry identity across reloads.
 - The owner-authorized environment `/tmp/mds-venv-2026.9.3` was populated entirely
   offline from the existing uv cache, without network or proxy changes. The
   repository's old `.venv` (Python 3.12 / Home Assistant 2025.1.4) remains untouched;
@@ -80,5 +88,6 @@ Source/release preparation only: no Home Assistant access, live installation,
 restart, cloud request, push or tag. Historical corrupted statistics are not
 rewritten. A genuine meter replacement remains held for six observed hours.
 Physical limits are intentionally generous but sites larger than these limits
-would need appropriate constants before deployment. Timestamp diagnosis remains
-open. Live installation requires the owner's existing backup/approval process.
+would need appropriate constants before deployment. Without a valid plant zone,
+telemetry sample timestamps retain the previous UTC fallback. Live installation
+requires the owner's existing backup/approval process.

@@ -454,7 +454,10 @@ def _latest_plot_power_kw(day: dict[str, Any] | None) -> float | None:
     return None
 
 
-def _timestamp_or_none(value: Any, timezone_id: str | None = None) -> datetime | None:
+def _timestamp_or_none(
+    value: Any, timezone_id: str | None = None, *, wall_time: bool = False
+) -> datetime | None:
+    """Decode an epoch as an instant, or as plant-local wall time when known."""
     parsed = _float_or_none(value)
     if parsed is None:
         return None
@@ -464,7 +467,8 @@ def _timestamp_or_none(value: Any, timezone_id: str | None = None) -> datetime |
     if not timezone_id:
         return dt
     try:
-        return dt.astimezone(ZoneInfo(timezone_id))
+        zone = ZoneInfo(timezone_id)
+        return dt.replace(tzinfo=zone) if wall_time else dt.astimezone(zone)
     except Exception:
         return dt
 
@@ -523,7 +527,9 @@ def _normalize_inverter_telemetry(
         ac_voltage_v=_scaled_tuple(record.get("ov"), 10),
         ac_current_a=_scaled_tuple(record.get("oc"), 100),
         ac_power_w=_scaled_tuple(record.get("op")),
-        last_sample=_timestamp_or_none(record.get("last_ts"), timezone_id),
+        last_sample=_timestamp_or_none(
+            record.get("last_ts"), timezone_id, wall_time=True
+        ),
         portal_update=_timestamp_or_none(record.get("update_ts"), timezone_id),
         raw=record,
     )

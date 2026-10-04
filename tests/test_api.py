@@ -1,5 +1,8 @@
 """Tests for MyDeltaSolar API normalization."""
 
+from datetime import UTC, datetime
+
+import pytest
 from custom_components.mydeltasolar.api import (
     _latest_plot_power_kw,
     _normalize_inverter_telemetry,
@@ -152,9 +155,7 @@ def test_normalize_telemetry_adds_calculated_current_power() -> None:
 
 
 def test_timestamp_unix_seconds_preserve_instant_in_plant_timezone() -> None:
-    """The mapped More Info fields are Unix timestamps, not naive wall time."""
-    from datetime import UTC, datetime
-
+    """Portal update epochs retain their instant in the plant zone."""
     from custom_components.mydeltasolar.api import _timestamp_or_none
 
     instant = datetime(2026, 10, 3, 14, 50, tzinfo=UTC)  # Taipei 22:50
@@ -165,3 +166,39 @@ def test_timestamp_unix_seconds_preserve_instant_in_plant_timezone() -> None:
         assert parsed.astimezone(UTC) == instant
         assert _timestamp_or_none(raw).isoformat() == "2026-10-03T14:50:00+00:00"
     assert _timestamp_or_none("2026-10-03 22:50:00", "Asia/Taipei") is None
+
+
+@pytest.mark.parametrize("scale", [1, 1000])
+def test_live_inverter_timestamps_distinguish_wall_time_from_instant(scale: int) -> None:
+    """The 2026-10-04 live pair has local-wall last_ts and Unix update_ts."""
+    data = _normalize_inverter_telemetry(
+        {
+            "last_ts": datetime(2026, 10, 4, 10, 35, tzinfo=UTC).timestamp() * scale,
+            "update_ts": datetime(2026, 10, 4, 2, 35, 49, tzinfo=UTC).timestamp() * scale,
+        },
+        "Asia/Taipei",
+    )
+
+    assert data is not None
+    assert data.last_sample.isoformat() == "2026-10-04T10:35:00+08:00"
+    assert data.portal_update.isoformat() == "2026-10-04T10:35:49+08:00"
+    assert data.last_sample.astimezone(UTC).isoformat() == "2026-10-04T02:35:00+00:00"
+
+
+@pytest.mark.parametrize("timezone_id", [None, "", "Invalid/Zone"])
+@pytest.mark.parametrize("scale", [1, 1000])
+def test_inverter_timestamps_without_valid_zone_keep_utc_fallback(
+    timezone_id: str | None, scale: int
+) -> None:
+    """Missing/invalid zones must not guess how to correct the wall-time epoch."""
+    data = _normalize_inverter_telemetry(
+        {
+            "last_ts": datetime(2026, 10, 4, 10, 35, tzinfo=UTC).timestamp() * scale,
+            "update_ts": datetime(2026, 10, 4, 2, 35, 49, tzinfo=UTC).timestamp() * scale,
+        },
+        timezone_id,
+    )
+
+    assert data is not None
+    assert data.last_sample.isoformat() == "2026-10-04T10:35:00+00:00"
+    assert data.portal_update.isoformat() == "2026-10-04T02:35:49+00:00"
